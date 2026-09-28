@@ -12,7 +12,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * 血液成分单位：唯一条码、成分类型、ABO/Rh 血型、采集与失效时间、库存状态。
+ * 血液成分单位：唯一条码、所属批次、成分类型、ABO/Rh 血型、采集与失效时间、库存状态。
  */
 @Entity
 @Table(name = "blood_component")
@@ -25,6 +25,10 @@ public class BloodComponent {
     /** 唯一条码，数据库唯一约束兜底 */
     @Column(nullable = false, unique = true, length = 64)
     private String barcode;
+
+    /** 供应批次号，召回按批次生效 */
+    @Column(nullable = false, length = 64)
+    private String batchNo;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
@@ -51,9 +55,10 @@ public class BloodComponent {
     protected BloodComponent() {
     }
 
-    public BloodComponent(String barcode, ComponentType componentType, AboGroup aboGroup, RhFactor rhFactor,
-                          Instant collectedAt, Instant expiresAt) {
+    public BloodComponent(String barcode, String batchNo, ComponentType componentType, AboGroup aboGroup,
+                          RhFactor rhFactor, Instant collectedAt, Instant expiresAt) {
         this.barcode = barcode;
+        this.batchNo = batchNo;
         this.componentType = componentType;
         this.aboGroup = aboGroup;
         this.rhFactor = rhFactor;
@@ -67,6 +72,10 @@ public class BloodComponent {
 
     public String getBarcode() {
         return barcode;
+    }
+
+    public String getBatchNo() {
+        return batchNo;
     }
 
     public ComponentType getComponentType() {

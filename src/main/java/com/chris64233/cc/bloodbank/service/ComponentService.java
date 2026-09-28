@@ -9,7 +9,6 @@ import com.chris64233.cc.bloodbank.repository.BloodComponentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -22,16 +21,19 @@ public class ComponentService {
     }
 
     @Transactional
-    public ComponentView register(String barcode, ComponentType componentType, AboGroup aboGroup, RhFactor rhFactor,
-                                  Instant collectedAt, Instant expiresAt) {
+    public ComponentView register(String barcode, String batchNo, ComponentType componentType, AboGroup aboGroup,
+                                  RhFactor rhFactor, java.time.Instant collectedAt, java.time.Instant expiresAt) {
         if (componentRepository.findByBarcode(barcode).isPresent()) {
             throw new RequestConflictException("条码 " + barcode + " 已存在");
+        }
+        if (batchNo == null || batchNo.isBlank()) {
+            throw new BadRequestException("批次号不能为空");
         }
         if (!expiresAt.isAfter(collectedAt)) {
             throw new BadRequestException("失效时间必须晚于采集时间");
         }
         BloodComponent saved = componentRepository.save(
-                new BloodComponent(barcode, componentType, aboGroup, rhFactor, collectedAt, expiresAt));
+                new BloodComponent(barcode, batchNo, componentType, aboGroup, rhFactor, collectedAt, expiresAt));
         return ComponentView.from(saved);
     }
 

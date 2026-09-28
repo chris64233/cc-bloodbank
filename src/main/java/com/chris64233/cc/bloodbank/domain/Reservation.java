@@ -54,6 +54,13 @@ public class Reservation {
     @Column
     private Instant releasedAt;
 
+    /**
+     * 不可发放标记：预留含被召回单位且换血尚未完成时置真，发放必须被拒绝。
+     * 全部受影响单位换血成功后清除；与行级状态共同决定当前能否发放。
+     */
+    @Column(nullable = false)
+    private boolean issueBlocked = false;
+
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<ReservationItem> items = new ArrayList<>();
@@ -110,6 +117,14 @@ public class Reservation {
 
     public void setReleasedAt(Instant releasedAt) {
         this.releasedAt = releasedAt;
+    }
+
+    public boolean isIssueBlocked() {
+        return issueBlocked;
+    }
+
+    public void setIssueBlocked(boolean issueBlocked) {
+        this.issueBlocked = issueBlocked;
     }
 
     public List<ReservationItem> getItems() {

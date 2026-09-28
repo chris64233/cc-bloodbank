@@ -2,6 +2,7 @@ package com.chris64233.cc.bloodbank.web;
 
 import com.chris64233.cc.bloodbank.service.BadRequestException;
 import com.chris64233.cc.bloodbank.service.InsufficientStockException;
+import com.chris64233.cc.bloodbank.service.IssueBlockedException;
 import com.chris64233.cc.bloodbank.service.NotFoundException;
 import com.chris64233.cc.bloodbank.service.RequestConflictException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -29,6 +30,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InsufficientStockException.class)
     public ResponseEntity<Map<String, String>> insufficient(InsufficientStockException e) {
         return error(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
+    /** 预留含被召回单位且换血未完成：被召回单位绝不出库 */
+    @ExceptionHandler(IssueBlockedException.class)
+    public ResponseEntity<Map<String, String>> issueBlocked(IssueBlockedException e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
     }
 
     @ExceptionHandler(BadRequestException.class)

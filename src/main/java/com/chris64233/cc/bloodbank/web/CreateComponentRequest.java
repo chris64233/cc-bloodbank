@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 
 public record CreateComponentRequest(@NotBlank String barcode,
+                                     @NotBlank String batchNo,
                                      @NotNull ComponentType componentType,
                                      @NotNull AboGroup aboGroup,
                                      @NotNull RhFactor rhFactor,

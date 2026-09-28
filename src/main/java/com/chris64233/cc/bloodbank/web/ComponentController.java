@@ -29,8 +29,8 @@ public class ComponentController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ComponentView register(@Valid @RequestBody CreateComponentRequest request) {
-        return componentService.register(request.barcode(), request.componentType(), request.aboGroup(),
-                request.rhFactor(), request.collectedAt(), request.expiresAt());
+        return componentService.register(request.barcode(), request.batchNo(), request.componentType(),
+                request.aboGroup(), request.rhFactor(), request.collectedAt(), request.expiresAt());
     }
 
     @GetMapping("/{barcode}")

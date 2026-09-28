@@ -8,6 +8,9 @@ import com.chris64233.cc.bloodbank.domain.ReservationStatus;
 import com.chris64233.cc.bloodbank.domain.RhFactor;
 import com.chris64233.cc.bloodbank.repository.BloodComponentRepository;
 import com.chris64233.cc.bloodbank.repository.ClinicalRequestRepository;
+import com.chris64233.cc.bloodbank.repository.RecallRepository;
+import com.chris64233.cc.bloodbank.repository.ReplacementItemRepository;
+import com.chris64233.cc.bloodbank.repository.ReplacementTaskRepository;
 import com.chris64233.cc.bloodbank.repository.ReservationItemRepository;
 import com.chris64233.cc.bloodbank.repository.ReservationRepository;
 import com.chris64233.cc.bloodbank.service.ComponentService;
@@ -56,13 +59,22 @@ class ReservationConcurrencyTest {
     @Autowired
     ReservationItemRepository itemRepository;
     @Autowired
+    ReplacementItemRepository replacementItemRepository;
+    @Autowired
+    ReplacementTaskRepository replacementTaskRepository;
+    @Autowired
+    RecallRepository recallRepository;
+    @Autowired
     TransactionTemplate transactionTemplate;
     @Autowired
     MutableClock clock;
 
     @BeforeEach
     void cleanUp() {
+        replacementItemRepository.deleteAll();
+        replacementTaskRepository.deleteAll();
         itemRepository.deleteAll();
+        recallRepository.deleteAll();
         reservationRepository.deleteAll();
         requestRepository.deleteAll();
         componentRepository.deleteAll();
@@ -70,7 +82,7 @@ class ReservationConcurrencyTest {
     }
 
     private void register(String barcode, Instant expiresAt) {
-        componentService.register(barcode, ComponentType.RED_CELLS, AboGroup.O, RhFactor.POSITIVE,
+        componentService.register(barcode, "BATCH-STD", ComponentType.RED_CELLS, AboGroup.O, RhFactor.POSITIVE,
                 TestClockConfig.T0.minus(Duration.ofDays(1)), expiresAt);
     }
 
