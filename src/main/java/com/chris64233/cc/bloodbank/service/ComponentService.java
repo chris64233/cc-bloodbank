@@ -22,8 +22,8 @@ public class ComponentService {
     }
 
     @Transactional
-    public ComponentView register(String barcode, ComponentType componentType, AboGroup aboGroup, RhFactor rhFactor,
-                                  Instant collectedAt, Instant expiresAt) {
+    public ComponentView register(String barcode, String batchNo, ComponentType componentType, AboGroup aboGroup,
+                                  RhFactor rhFactor, Instant collectedAt, Instant expiresAt) {
         if (componentRepository.findByBarcode(barcode).isPresent()) {
             throw new RequestConflictException("条码 " + barcode + " 已存在");
         }
@@ -31,7 +31,7 @@ public class ComponentService {
             throw new BadRequestException("失效时间必须晚于采集时间");
         }
         BloodComponent saved = componentRepository.save(
-                new BloodComponent(barcode, componentType, aboGroup, rhFactor, collectedAt, expiresAt));
+                new BloodComponent(barcode, batchNo, componentType, aboGroup, rhFactor, collectedAt, expiresAt));
         return ComponentView.from(saved);
     }
 

@@ -70,7 +70,7 @@ class ReservationConcurrencyTest {
     }
 
     private void register(String barcode, Instant expiresAt) {
-        componentService.register(barcode, ComponentType.RED_CELLS, AboGroup.O, RhFactor.POSITIVE,
+        componentService.register(barcode, "BATCH-DEFAULT", ComponentType.RED_CELLS, AboGroup.O, RhFactor.POSITIVE,
                 TestClockConfig.T0.minus(Duration.ofDays(1)), expiresAt);
     }
 
@@ -213,9 +213,9 @@ class ReservationConcurrencyTest {
 
         // 直接在数据库层面并发执行两个互斥的条件流转：有且只有一个生效
         Callable2<Integer> markIssued = () ->
-                transactionTemplate.execute(tx -> reservationRepository.markIssuedIfReserved(reservationId, now));
+                transactionTemplate.execute(tx -> reservationRepository.markIssuedIfReserved(reservationId, now, 0));
         Callable2<Integer> markReleased = () ->
-                transactionTemplate.execute(tx -> reservationRepository.markReleasedIfReserved(reservationId, now));
+                transactionTemplate.execute(tx -> reservationRepository.markReleasedIfReserved(reservationId, now, 0));
 
         int updated = 0;
         for (Future<Integer> f : race(markIssued, markReleased)) {

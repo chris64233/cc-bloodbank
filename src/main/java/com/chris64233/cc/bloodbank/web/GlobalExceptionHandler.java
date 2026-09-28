@@ -3,6 +3,7 @@ package com.chris64233.cc.bloodbank.web;
 import com.chris64233.cc.bloodbank.service.BadRequestException;
 import com.chris64233.cc.bloodbank.service.InsufficientStockException;
 import com.chris64233.cc.bloodbank.service.NotFoundException;
+import com.chris64233.cc.bloodbank.service.RecallBlockedException;
 import com.chris64233.cc.bloodbank.service.RequestConflictException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(RequestConflictException.class)
     public ResponseEntity<Map<String, String>> conflict(RequestConflictException e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(RecallBlockedException.class)
+    public ResponseEntity<Map<String, String>> recallBlocked(RecallBlockedException e) {
         return error(HttpStatus.CONFLICT, e.getMessage());
     }
 

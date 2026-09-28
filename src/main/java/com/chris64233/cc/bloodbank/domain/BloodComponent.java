@@ -26,6 +26,10 @@ public class BloodComponent {
     @Column(nullable = false, unique = true, length = 64)
     private String barcode;
 
+    /** 采供血批次号，召回按批次发布 */
+    @Column(nullable = false, length = 64)
+    private String batchNo;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 32)
     private ComponentType componentType;
@@ -51,9 +55,10 @@ public class BloodComponent {
     protected BloodComponent() {
     }
 
-    public BloodComponent(String barcode, ComponentType componentType, AboGroup aboGroup, RhFactor rhFactor,
-                          Instant collectedAt, Instant expiresAt) {
+    public BloodComponent(String barcode, String batchNo, ComponentType componentType, AboGroup aboGroup,
+                          RhFactor rhFactor, Instant collectedAt, Instant expiresAt) {
         this.barcode = barcode;
+        this.batchNo = batchNo;
         this.componentType = componentType;
         this.aboGroup = aboGroup;
         this.rhFactor = rhFactor;
@@ -67,6 +72,10 @@ public class BloodComponent {
 
     public String getBarcode() {
         return barcode;
+    }
+
+    public String getBatchNo() {
+        return batchNo;
     }
 
     public ComponentType getComponentType() {

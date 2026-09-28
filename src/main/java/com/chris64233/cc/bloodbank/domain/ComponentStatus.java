@@ -6,5 +6,7 @@ public enum ComponentStatus {
     /** 已被预留，等待发放或到期释放 */
     RESERVED,
     /** 已发放给患者，不可恢复 */
-    ISSUED
+    ISSUED,
+    /** 已被生效召回冻结：不能参与新预留、不能发放、到期释放也不回库 */
+    RECALLED
 }

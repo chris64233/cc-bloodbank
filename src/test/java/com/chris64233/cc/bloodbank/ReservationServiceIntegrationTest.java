@@ -59,7 +59,8 @@ class ReservationServiceIntegrationTest {
     }
 
     private void register(String barcode, ComponentType type, AboGroup abo, RhFactor rh, Instant expiresAt) {
-        componentService.register(barcode, type, abo, rh, TestClockConfig.T0.minus(Duration.ofDays(1)), expiresAt);
+        componentService.register(barcode, "BATCH-DEFAULT", type, abo, rh,
+                TestClockConfig.T0.minus(Duration.ofDays(1)), expiresAt);
     }
 
     private ComponentStatus statusOf(String barcode) {

@@ -11,6 +11,8 @@ import com.chris64233.cc.bloodbank.domain.ReservationStatus;
 import com.chris64233.cc.bloodbank.domain.RhFactor;
 import com.chris64233.cc.bloodbank.repository.BloodComponentRepository;
 import com.chris64233.cc.bloodbank.repository.ClinicalRequestRepository;
+import com.chris64233.cc.bloodbank.repository.ReplacementItemRepository;
+import com.chris64233.cc.bloodbank.repository.ReplacementTaskRepository;
 import com.chris64233.cc.bloodbank.repository.ReservationItemRepository;
 import com.chris64233.cc.bloodbank.repository.ReservationRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,7 +28,8 @@ import java.util.Set;
 /**
  * 预留核心服务。所有状态与库存变更都在同一事务内完成：
  * 并发预留靠候选行悲观锁 + 状态条件更新兜底；
- * 发放/到期释放靠预留行悲观锁 + 条件状态流转保证只有一个生效。
+ * 发放/到期释放靠预留行悲观锁 + 条件状态流转（含状态版本）保证只有一个生效；
+ * 召回冻结的单位（RECALLED）不能发放，到期释放也不会退回库存。
  */
 @Service
 public class ReservationService {
@@ -35,6 +38,8 @@ public class ReservationService {
     private final ClinicalRequestRepository requestRepository;
     private final ReservationRepository reservationRepository;
     private final ReservationItemRepository itemRepository;
+    private final ReplacementTaskRepository taskRepository;
+    private final ReplacementItemRepository replacementItemRepository;
     private final Clock clock;
     private final Duration reservationTtl;
 
@@ -42,12 +47,16 @@ public class ReservationService {
                               ClinicalRequestRepository requestRepository,
                               ReservationRepository reservationRepository,
                               ReservationItemRepository itemRepository,
+                              ReplacementTaskRepository taskRepository,
+                              ReplacementItemRepository replacementItemRepository,
                               Clock clock,
                               @Value("${bloodbank.reservation-ttl:PT24H}") Duration reservationTtl) {
         this.componentRepository = componentRepository;
         this.requestRepository = requestRepository;
         this.reservationRepository = reservationRepository;
         this.itemRepository = itemRepository;
+        this.taskRepository = taskRepository;
+        this.replacementItemRepository = replacementItemRepository;
         this.clock = clock;
         this.reservationTtl = reservationTtl;
     }
@@ -73,7 +82,7 @@ public class ReservationService {
             if (!req.sameContentAs(patientAbo, patientRh, componentType, unitCount, latestUseTime)) {
                 throw new RequestConflictException("申请号 " + requestNo + " 已存在且申请内容不一致");
             }
-            // 幂等重放：返回原分配（无论预留当前处于何种状态）
+            // 幂等重放：返回原分配（无论预留当前状态）
             Reservation reservation = reservationRepository.findByRequest_RequestNo(requestNo).orElseThrow();
             return viewOf(reservation.getId());
         }
@@ -88,9 +97,9 @@ public class ReservationService {
         }
         List<BloodComponent> chosen = candidates.subList(0, unitCount);
         for (BloodComponent c : chosen) {
-            // 数据库条件更新兜底：并发下已被占用的单位在这里必然失败，整笔回滚
+            // 数据库条件更新兜底：并发下已被占用或已被召回冻结的单位在这里必然失败，整笔回滚
             if (componentRepository.reserveIfAvailable(c.getId()) != 1) {
-                throw new InsufficientStockException("单位 " + c.getBarcode() + " 已被并发预留");
+                throw new InsufficientStockException("单位 " + c.getBarcode() + " 已被并发预留或召回");
             }
         }
 
@@ -105,7 +114,8 @@ public class ReservationService {
     }
 
     /**
-     * 确认发放：仅生效中的预留且在截止前可发放；到期未发放则转为释放。
+     * 确认发放：仅生效中的预留且在截止前、未因召回暂停时可发放；到期未发放则转为释放。
+     * 被召回单位绝不能发放：存在待处理换血任务（blocked）或当前明细含 RECALLED 单位时拒绝发放。
      * 重复发放幂等，返回当前状态，不重复改变库存。
      */
     @Transactional
@@ -115,16 +125,33 @@ public class ReservationService {
         Long id = locked.getId();
         Instant now = clock.instant();
 
-        if (locked.getStatus() == ReservationStatus.RESERVED) {
-            if (!now.isBefore(locked.getExpiresAt())) {
-                // 已到期：按到期释放处理，与后台清理语义一致
-                releaseLocked(id, now);
-            } else if (reservationRepository.markIssuedIfReserved(id, now) == 1) {
-                for (ReservationItem item : itemRepository.findByReservationIdWithComponent(id)) {
-                    item.getComponent().setStatus(ComponentStatus.ISSUED);
-                }
-            }
-            // 条件更新返回 0：并发流转已先生效，直接返回当前状态
+        if (locked.getStatus() != ReservationStatus.RESERVED) {
+            return viewOf(id);
+        }
+        long version = locked.getStateVersion();
+        List<ReservationItem> activeItems = itemRepository.findActiveByReservationId(id);
+        if (!now.isBefore(locked.getExpiresAt())) {
+            // 已到期：按到期释放处理，与后台清理语义一致
+            releaseLocked(id, now, version);
+            return viewOf(id);
+        }
+        if (locked.isBlocked() || activeItems.stream().anyMatch(i -> i.getComponent().getStatus() == ComponentStatus.RECALLED)) {
+            throw new RecallBlockedException("申请号 " + requestNo + " 的预留含被召回单位，须完成换血后才能发放");
+        }
+        List<Long> componentIds = activeItems.stream().map(i -> i.getComponent().getId()).toList();
+        if (reservationRepository.markIssuedIfReserved(id, now, version) != 1) {
+            // 条件更新返回 0：并发流转已先生效或持锁期间发生换血，直接返回当前状态
+            return viewOf(id);
+        }
+        // 预留已条件流转为 ISSUED（上下文已清空）。仅仍为 RESERVED 的单位会发放；
+        // 若有单位在并发下被召回冻结，受影响行数必然少于当前单位数，
+        // 抛异常回滚整笔（含发放状态），被召回单位绝不发放。
+        int issued = componentRepository.issueReservedIn(componentIds);
+        if (issued != componentIds.size()) {
+            throw new RecallBlockedException("申请号 " + requestNo + " 的单位在发放时被召回，已阻止发放");
+        }
+        for (Long itemId : activeItems.stream().map(ReservationItem::getId).toList()) {
+            itemRepository.findById(itemId).ifPresent(item -> item.setActive(false));
         }
         return viewOf(id);
     }
@@ -143,20 +170,32 @@ public class ReservationService {
                     || locked.get().getExpiresAt().isAfter(now)) {
                 continue;
             }
-            if (releaseLocked(id, now)) {
+            if (releaseLocked(id, now, locked.get().getStateVersion())) {
                 released++;
             }
         }
         return released;
     }
 
-    private boolean releaseLocked(Long reservationId, Instant now) {
-        if (reservationRepository.markReleasedIfReserved(reservationId, now) != 1) {
+    /**
+     * 条件释放：状态版本不匹配（持锁期间完成换血）则放弃，避免把替代单位退回库存。
+     * 释放时仅仍为 RESERVED 的合格单位回到 AVAILABLE，RECALLED 单位由条件更新自动跳过、保持冻结；
+     * 当前明细全部停用为历史，待处理换血任务作废。供到期清理与换血到期分支共用。
+     */
+    public boolean releaseLocked(Long reservationId, Instant now, long version) {
+        List<Long> activeItemIds = itemRepository.findActiveByReservationId(reservationId).stream()
+                .map(ReservationItem::getId).toList();
+        List<Long> componentIds = itemRepository.findActiveByReservationId(reservationId).stream()
+                .map(i -> i.getComponent().getId()).toList();
+        if (reservationRepository.markReleasedIfReserved(reservationId, now, version) != 1) {
             return false;
         }
-        for (ReservationItem item : itemRepository.findByReservationIdWithComponent(reservationId)) {
-            item.getComponent().setStatus(ComponentStatus.AVAILABLE);
+        // 预留已条件流转（上下文已清空）：仅仍为 RESERVED 的合格单位回库，RECALLED 自动跳过
+        componentRepository.releaseReservedIn(componentIds);
+        for (Long itemId : activeItemIds) {
+            itemRepository.findById(itemId).ifPresent(item -> item.setActive(false));
         }
+        taskRepository.markPendingObsolete(reservationId, now);
         return true;
     }
 
@@ -172,10 +211,15 @@ public class ReservationService {
 
     private ReservationView viewOf(Long reservationId) {
         Reservation r = reservationRepository.findById(reservationId).orElseThrow();
-        List<ReservationItemView> items = itemRepository.findByReservationIdWithComponent(reservationId)
+        List<ReservationItemView> items = itemRepository.findActiveByReservationId(reservationId)
                 .stream()
                 .map(i -> ReservationItemView.from(i.getComponent()))
                 .toList();
-        return ReservationView.of(r, items);
+        List<ReplacementItemView> replacements = replacementItemRepository
+                .findByReservationIdWithDetails(reservationId)
+                .stream()
+                .map(ReplacementItemView::from)
+                .toList();
+        return ReservationView.of(r, items, replacements);
     }
 }

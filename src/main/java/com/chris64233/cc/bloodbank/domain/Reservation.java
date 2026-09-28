@@ -54,6 +54,21 @@ public class Reservation {
     @Column
     private Instant releasedAt;
 
+    /**
+     * 召回导致换血库存不足时置为 true：保留原预留关系但禁止发放。
+     * 后续换血成功或释放/终止时清除（终态不再参与发放）。
+     */
+    @Column(nullable = false)
+    private boolean blocked = false;
+
+    /**
+     * 预留状态版本号：每次成功换血递增。发放/到期释放的条件流转必须匹配持锁时读到的版本，
+     * 一旦持锁期间发生换血（版本变化），基于旧单位集的发放/释放将整体不生效，
+     * 防止"换血完成后又被旧的释放操作把替代单位退回库存"。
+     */
+    @Column(nullable = false)
+    private long stateVersion = 0;
+
     @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("id ASC")
     private List<ReservationItem> items = new ArrayList<>();
@@ -110,6 +125,22 @@ public class Reservation {
 
     public void setReleasedAt(Instant releasedAt) {
         this.releasedAt = releasedAt;
+    }
+
+    public boolean isBlocked() {
+        return blocked;
+    }
+
+    public void setBlocked(boolean blocked) {
+        this.blocked = blocked;
+    }
+
+    public long getStateVersion() {
+        return stateVersion;
+    }
+
+    public void incrementStateVersion() {
+        this.stateVersion++;
     }
 
     public List<ReservationItem> getItems() {

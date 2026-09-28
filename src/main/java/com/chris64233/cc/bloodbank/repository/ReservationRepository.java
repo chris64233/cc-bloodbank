@@ -27,24 +27,44 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     Optional<Reservation> findByIdForUpdate(@Param("id") Long id);
 
     /**
-     * 条件状态流转：仅当预留仍处于 RESERVED 时才置为目标状态。
-     * 返回 1 表示本次流转生效，0 表示已被并发流转或已处于终态（幂等）。
+     * 条件状态流转：仅当预留仍处于 RESERVED 且状态版本未变（期间没有换血）时才置为 ISSUED。
+     * 返回 1 表示本次流转生效，0 表示已被并发流转、已终态或持锁期间发生换血（应放弃本次操作）。
+     * 该更新在事务末尾执行并清空上下文，确保随后的查询读到最新状态。
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             UPDATE Reservation r
             SET r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.ISSUED, r.issuedAt = :at
-            WHERE r.id = :id AND r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.RESERVED
+            WHERE r.id = :id
+              AND r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.RESERVED
+              AND r.stateVersion = :version
             """)
-    int markIssuedIfReserved(@Param("id") Long id, @Param("at") Instant at);
+    int markIssuedIfReserved(@Param("id") Long id, @Param("at") Instant at, @Param("version") long version);
 
+    /**
+     * 条件状态流转：仅当预留仍处于 RESERVED 且状态版本未变时才置为 RELEASED。
+     * 版本不匹配说明持锁期间发生换血，旧的释放必须放弃（不能把替代单位退回库存）。
+     * 该更新在事务末尾执行并清空上下文，确保随后的查询读到最新状态。
+     */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             UPDATE Reservation r
             SET r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.RELEASED, r.releasedAt = :at
+            WHERE r.id = :id
+              AND r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.RESERVED
+              AND r.stateVersion = :version
+            """)
+    int markReleasedIfReserved(@Param("id") Long id, @Param("at") Instant at, @Param("version") long version);
+
+    /** 人工确认无法换血：仅 RESERVED 可终止；在事务末尾执行并清空上下文，避免游离状态被回写 */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            UPDATE Reservation r
+            SET r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.TERMINATED, r.releasedAt = :at,
+                r.blocked = false
             WHERE r.id = :id AND r.status = com.chris64233.cc.bloodbank.domain.ReservationStatus.RESERVED
             """)
-    int markReleasedIfReserved(@Param("id") Long id, @Param("at") Instant at);
+    int markTerminatedIfReserved(@Param("id") Long id, @Param("at") Instant at);
 
     /** 已到期的生效中预留，按 id 排序避免与候选单位加锁顺序不一致造成死锁 */
     @Query("""
